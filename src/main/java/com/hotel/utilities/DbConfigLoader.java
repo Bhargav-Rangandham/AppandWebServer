@@ -28,6 +28,10 @@ public class DbConfigLoader {
         // ===== Read Image properties =====
         String imageBaseUrl      = props.getProperty("db.imagebaseurl");
         String hotelImagesPath   = props.getProperty("db.hotelimagespath");
+        
+        // ===== Payment API properties =====
+        String apiKey      = props.getProperty("db.apikey");
+        String apiKeySecret   = props.getProperty("db.apikeysecret");
 
         // ===== Validate DB properties =====
         if (customerUrl == null || customerUrl.isBlank()) {
@@ -49,6 +53,14 @@ public class DbConfigLoader {
         }
         if (hotelImagesPath == null || hotelImagesPath.isBlank()) {
             throw new IllegalStateException("Missing property: db.hotelimagespath");
+        }
+        
+        // ===== Validate Payment API Key properties =====
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("Missing property: db.apikey");
+        }
+        if (apiKeySecret == null || apiKeySecret.isBlank()) {
+            throw new IllegalStateException("Missing property: db.apikeysecret");
         }
 
         // ===== Normalize image base URL =====
@@ -87,7 +99,9 @@ public class DbConfigLoader {
                 user,
                 password,
                 imageBaseUrl,
-                hotelImagesPath
+                hotelImagesPath,
+                apiKey,
+                apiKeySecret
         );
     }
 }
