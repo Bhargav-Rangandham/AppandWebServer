@@ -17,12 +17,15 @@ public class PaymentHandler implements HttpHandler {
     private final ObjectMapper mapper = new ObjectMapper();
 
     // Razorpay credentials
-    private static final String RZP_KEY = "Pass API Key Here"; 
-    private static final String RZP_SECRET = "Pass API Key Secrets";
-    private static final String WEBHOOK_SECRET = "your_webhook_secret_here"; 
+    private final String RZP_KEY; 
+    private final String RZP_SECRET;
+    private final String WEBHOOK_SECRET; 
 
     public PaymentHandler(DbConfig dbConfig) {
         this.dbConfig = dbConfig;
+        this.RZP_KEY = dbConfig.getApiKey();
+        this.RZP_SECRET = dbConfig.getAPIKeySecret();
+        this.WEBHOOK_SECRET = dbConfig.getAPIKeySecret();
     }
 
     @Override

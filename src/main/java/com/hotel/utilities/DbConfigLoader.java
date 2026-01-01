@@ -32,6 +32,7 @@ public class DbConfigLoader {
         // ===== Payment API properties =====
         String apiKey      = props.getProperty("db.apikey");
         String apiKeySecret   = props.getProperty("db.apikeysecret");
+        String webHookSecret   = props.getProperty("db.webhooksecret");
 
         // ===== Validate DB properties =====
         if (customerUrl == null || customerUrl.isBlank()) {
@@ -61,6 +62,10 @@ public class DbConfigLoader {
         }
         if (apiKeySecret == null || apiKeySecret.isBlank()) {
             throw new IllegalStateException("Missing property: db.apikeysecret");
+        }
+        
+        if (webHookSecret == null || webHookSecret.isBlank()) {
+            throw new IllegalStateException("Missing property: db.webhooksecret");
         }
 
         // ===== Normalize image base URL =====
@@ -93,15 +98,8 @@ public class DbConfigLoader {
         String password = CryptoUtil.decrypt(encryptedPass, masterKey);
 
         // ===== Return consolidated config =====
-        return new DbConfig(
-                customerUrl,
-                partnerUrl,
-                user,
-                password,
-                imageBaseUrl,
-                hotelImagesPath,
-                apiKey,
-                apiKeySecret
+        return new DbConfig(customerUrl, partnerUrl, user, password, imageBaseUrl, hotelImagesPath,
+                apiKey, apiKeySecret, webHookSecret
         );
     }
 }
