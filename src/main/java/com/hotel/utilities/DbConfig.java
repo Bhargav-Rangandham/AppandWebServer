@@ -22,22 +22,22 @@ public final class DbConfig {
     // ===== Image Config =====
     private final String imageBaseUrl;
     private final String hotelImagesPath;
-
+    
+ // ===== Payment API Key and Secrets =====
+    private final String apiKey;
+    private final String apiKeySecret;
+    private final String webHookSecret;
+    
     // ===== DataSources =====
     private final HikariDataSource customerDataSource;
     private final HikariDataSource partnerDataSource;
 
     // ===== Constructor =====
-    public DbConfig(String customerDbUrl,
-                    String partnerDbUrl,
-                    String username,
-                    String password,
-                    String imageBaseUrl,
-                    String hotelImagesPath) {
+    public DbConfig(String customerDbUrl, String partnerDbUrl, String username, String password,
+                    String imageBaseUrl, String hotelImagesPath, String apiKey, String apiKeySecret, String webHookSecret) {
 
-        if (customerDbUrl == null || partnerDbUrl == null ||
-            username == null || password == null ||
-            imageBaseUrl == null || hotelImagesPath == null) {
+        if (customerDbUrl == null || partnerDbUrl == null || username == null || password == null ||
+            imageBaseUrl == null || hotelImagesPath == null || apiKey == null || apiKeySecret == null || webHookSecret == null) {
             throw new IllegalArgumentException("DbConfig parameters must not be null");
         }
 
@@ -47,6 +47,9 @@ public final class DbConfig {
         this.password = password;
         this.imageBaseUrl = imageBaseUrl;
         this.hotelImagesPath = hotelImagesPath;
+        this.apiKey = apiKey;
+        this.apiKeySecret = apiKeySecret;
+        this.webHookSecret = webHookSecret;
 
         // Initialize pools
         this.customerDataSource = createDataSource(customerDbUrl);
@@ -96,6 +99,19 @@ public final class DbConfig {
     public String getHotelImagesPath() {
         return hotelImagesPath;
     }
+    
+    public String getApiKey() {
+        return apiKey;
+    }
+
+    public String getAPIKeySecret() {
+        return apiKeySecret;
+    }
+    
+    public String getWebhookSecret() {
+        return webHookSecret;
+    }
+    
 
     // ===== Graceful Shutdown =====
     public void close() {

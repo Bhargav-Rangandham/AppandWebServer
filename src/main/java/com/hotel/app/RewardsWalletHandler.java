@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hotel.utilities.DbConfig;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URLDecoder;
@@ -17,34 +18,42 @@ import java.util.UUID;
 
 public class RewardsWalletHandler implements HttpHandler {
 
-	private final DbConfig dbConfig;
+    private final DbConfig dbConfig;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    // ✅ Inject DbConfig via constructor
     public RewardsWalletHandler(DbConfig dbConfig) {
         this.dbConfig = dbConfig;
     }
 
-    private final ObjectMapper mapper = new ObjectMapper();
-
     private Connection getConnection() throws SQLException {
-    	Connection conn = dbConfig.getCustomerDataSource().getConnection();
-        return conn;
+        return dbConfig.getCustomerDataSource().getConnection();
     }
 
+    // =====================================================
+    // MAIN ROUTER (FIXED — NON-BREAKING)
+    // =====================================================
     @Override
     public void handle(HttpExchange exchange) throws IOException {
-        ObjectNode response = mapper.createObjectNode();
+
+        ObjectNode response;
         String method = exchange.getRequestMethod();
         String path = exchange.getRequestURI().getPath();
 
         try {
-            if ("GET".equalsIgnoreCase(method) && "/wallet".equals(path)) {
+            if ("GET".equalsIgnoreCase(method) && path.startsWith("/wallet")) {
                 response = handleWalletRequest(exchange);
+
+            } else if ("POST".equalsIgnoreCase(method) && path.startsWith("/coupon/validate")) {
+                response = handleCouponValidate(exchange);
+
             } else {
+                response = mapper.createObjectNode();
                 response.put("error", "Invalid API endpoint");
             }
+
         } catch (Exception e) {
             e.printStackTrace();
+            response = mapper.createObjectNode();
             response.put("error", e.getMessage());
         }
 
@@ -57,7 +66,121 @@ public class RewardsWalletHandler implements HttpHandler {
         }
     }
 
-    // ----------------- UTIL: parse query -----------------
+    // =====================================================
+    // COUPON VALIDATION (FIXED, ISOLATED)
+    // POST /coupon/validate
+    // =====================================================
+    private ObjectNode handleCouponValidate(HttpExchange exchange) throws Exception {
+
+        String body = new String(
+                exchange.getRequestBody().readAllBytes(),
+                StandardCharsets.UTF_8
+        );
+
+        ObjectNode req = (ObjectNode) mapper.readTree(body);
+
+        String userId = req.path("userId").asText("").trim();
+        String couponCode = req.path("couponCode").asText("").trim();
+        double baseAmount = req.path("baseAmount").asDouble(0);
+
+        ObjectNode resp = mapper.createObjectNode();
+
+        if (userId.isEmpty() || couponCode.isEmpty()) {
+            resp.put("valid", false);
+            resp.put("message", "Missing userId or couponCode");
+            return resp;
+        }
+
+        try (Connection conn = getConnection()) {
+
+            String sql = """
+                SELECT coupon_id, discount_type, discount_value,
+                       max_discount, min_order_value, usage_limit_per_user
+                FROM coupons
+                WHERE UPPER(coupon_code) = UPPER(?)
+                  AND status='active'
+                  AND valid_from <= NOW()
+                  AND valid_to >= NOW()
+                """;
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, couponCode);
+                ResultSet rs = ps.executeQuery();
+
+                if (!rs.next()) {
+                    resp.put("valid", false);
+                    resp.put("message", "Invalid or expired coupon");
+                    return resp;
+                }
+
+                String couponId = rs.getString("coupon_id");
+                String discountType = rs.getString("discount_type");
+                double discountValue = rs.getDouble("discount_value");
+
+                Double maxDiscount =
+                        rs.getObject("max_discount") == null ? null : rs.getDouble("max_discount");
+
+                Double minOrderValue =
+                        rs.getObject("min_order_value") == null ? null : rs.getDouble("min_order_value");
+
+                Integer usageLimit =
+                        rs.getObject("usage_limit_per_user") == null ? null : rs.getInt("usage_limit_per_user");
+
+                if (minOrderValue != null && baseAmount < minOrderValue) {
+                    resp.put("valid", false);
+                    resp.put("message", "Minimum order value not met");
+                    return resp;
+                }
+
+                int usedCount = getCouponUsage(conn, couponId, userId);
+                if (usageLimit != null && usageLimit > 0 && usedCount >= usageLimit) {
+                    resp.put("valid", false);
+                    resp.put("message", "Coupon usage limit reached");
+                    return resp;
+                }
+
+                double discountAmount;
+                if ("percentage".equalsIgnoreCase(discountType)) {
+                    discountAmount = baseAmount * (discountValue / 100.0);
+                    if (maxDiscount != null) {
+                        discountAmount = Math.min(discountAmount, maxDiscount);
+                    }
+                } else {
+                    discountAmount = discountValue;
+                }
+
+                double discountedAmount = Math.max(0, baseAmount - discountAmount);
+
+                // ❗ IMPORTANT:
+                // Usage is intentionally NOT incremented here.
+                // It must be done only after successful payment.
+
+                resp.put("valid", true);
+                resp.put("couponTitle", couponCode);
+                resp.put("discountAmount", discountAmount);
+                resp.put("discountedAmount", discountedAmount);
+            }
+        }
+
+        return resp;
+    }
+
+    // =====================================================
+    // COUPON USAGE (READ-ONLY HERE)
+    // =====================================================
+    private int getCouponUsage(Connection conn, String couponId, String userId) throws SQLException {
+        String sql = "SELECT usage_count FROM coupon_usage WHERE coupon_id=? AND user_id=? LIMIT 1";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, couponId);
+            ps.setString(2, userId);
+            ResultSet rs = ps.executeQuery();
+            return rs.next() ? rs.getInt("usage_count") : 0;
+        }
+    }
+
+    // =====================================================
+    // UTIL: parse query
+    // =====================================================
     private Map<String, String> parseQuery(String query) {
         Map<String, String> result = new HashMap<>();
         if (query == null || query.isEmpty()) return result;
@@ -73,27 +196,19 @@ public class RewardsWalletHandler implements HttpHandler {
         return result;
     }
 
-    // ----------------- UTIL: referral code generator -----------------
-    /**
-     * Referral code format:
-     *  PREFIX "HB-"
-     *  + Base36 hash of (userId + salt)
-     *  + 3-digit suffix derived from hash (pseudo-random but deterministic)
-     *
-     * Example: HB-A1C9F237
-     */
+    // =====================================================
+    // UTIL: referral code generator (UNCHANGED)
+    // =====================================================
     private String generateReferralCode(String userId) {
         String base = userId + "|REFERRAL_SALT";
-        int hash = Math.abs(base.hashCode()); // stable pseudo-random
-        String base36 = Integer.toString(hash, 36).toUpperCase(); // e.g. "A1C9F"
-
+        int hash = Math.abs(base.hashCode());
+        String base36 = Integer.toString(hash, 36).toUpperCase();
         String hashPart = base36.length() > 5 ? base36.substring(0, 5) : base36;
-        int numericSuffix = hash % 1000; // 0 to 999
+        int numericSuffix = hash % 1000;
         String suffix = String.format("%03d", numericSuffix);
-
         return "HB-" + hashPart + suffix;
     }
-
+   
     // ----------------- MAIN: /wallet handler -----------------
     private ObjectNode handleWalletRequest(HttpExchange exchange) throws Exception {
         String query = exchange.getRequestURI().getQuery();
@@ -129,7 +244,6 @@ public class RewardsWalletHandler implements HttpHandler {
             if (walletId == null) {
                 walletId = UUID.randomUUID().toString();
 
-                // Create wallet
                 String insertWallet = "INSERT INTO wallets(wallet_id, user_id, balance) VALUES(?,?,0.00)";
                 try (PreparedStatement ps = conn.prepareStatement(insertWallet)) {
                     ps.setString(1, walletId);
@@ -137,7 +251,6 @@ public class RewardsWalletHandler implements HttpHandler {
                     ps.executeUpdate();
                 }
 
-                // Create empty referral tracking (no code column in table yet, only reward tracking)
                 String insertReferral = "INSERT INTO referrals(referral_id, referrer_user_id, reward_status, reward_amount) VALUES(?,?,?,?)";
                 try (PreparedStatement ps = conn.prepareStatement(insertReferral)) {
                     ps.setString(1, UUID.randomUUID().toString());
@@ -154,7 +267,6 @@ public class RewardsWalletHandler implements HttpHandler {
                 json.put("walletCreated", false);
             }
 
-            // Wallet exists after this point
             json.put("walletExists", true);
             json.put("walletId", walletId);
             json.put("balance", balance);
@@ -267,7 +379,6 @@ public class RewardsWalletHandler implements HttpHandler {
                         c.put("applicablePlatform", rs.getString("applicable_platform"));
                         c.put("status", rs.getString("status"));
 
-                        // rules
                         ArrayNode rulesArray = mapper.createArrayNode();
                         rulePs.setString(1, couponId);
                         try (ResultSet ruleRs = rulePs.executeQuery()) {
@@ -279,7 +390,6 @@ public class RewardsWalletHandler implements HttpHandler {
                             }
                         }
                         c.set("rules", rulesArray);
-
                         couponArray.add(c);
                     }
                 }
@@ -291,4 +401,5 @@ public class RewardsWalletHandler implements HttpHandler {
 
         return json;
     }
+
 }

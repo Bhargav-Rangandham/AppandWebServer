@@ -9,6 +9,7 @@ import org.json.JSONObject;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
+import java.util.UUID;
 
 public class RegisterHandler implements HttpHandler {
 
@@ -101,8 +102,22 @@ public class RegisterHandler implements HttpHandler {
                     insertStmt.setString(9, consent);
                     insertStmt.executeUpdate();
                 }
-            }
+                
+                String walletSql = """
+                        INSERT INTO wallets
+                        (wallet_id, user_id, balance, status)
+                        VALUES (?, ?, ?, ?)
+                        """;
 
+                try (PreparedStatement walletStmt = conn.prepareStatement(walletSql)) {
+                    walletStmt.setString(1, UUID.randomUUID().toString());
+                    walletStmt.setString(2, newId);
+                    walletStmt.setBigDecimal(3, new java.math.BigDecimal("200.00"));
+                    walletStmt.setString(4, "active");
+                    walletStmt.executeUpdate();
+                }
+            }
+            
             sendResponse(exchange, 200, "Registration Successful");
 
         } catch (Exception e) {

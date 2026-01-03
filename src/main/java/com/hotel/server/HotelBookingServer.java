@@ -8,6 +8,7 @@ import com.hotel.app.BookingHistoryHandler;
 import com.hotel.app.HomePageHandler;
 import com.hotel.app.HotelsHandler;
 import com.hotel.app.LoginHandler;
+import com.hotel.app.PaymentHandler;
 import com.hotel.app.PgsHandler;
 import com.hotel.app.ProfileHandler;
 import com.hotel.app.RegisterHandler;
@@ -71,11 +72,17 @@ public class HotelBookingServer {
         server.createContext("/update-booking-dates", new BookingHistoryHandler(dbConfig));
         server.createContext("/filterHotels", new AppFilterHandler(dbConfig));
         
+        // ============= App Payment & Wallets Section ===============
+        
         server.createContext("/wallet", new RewardsWalletHandler(dbConfig));
         server.createContext("/wallet/deposit", new RewardsWalletHandler(dbConfig));
         server.createContext("/wallet/pay", new RewardsWalletHandler(dbConfig));
         server.createContext("/coupon/validate", new RewardsWalletHandler(dbConfig));
         server.createContext("/referrals", new RewardsWalletHandler(dbConfig));
+        server.createContext("/payment/createOrder", new PaymentHandler(dbConfig));
+        server.createContext("/payment/verify", new PaymentHandler(dbConfig));
+        server.createContext("/razorpay/webhook", new PaymentHandler(dbConfig));
+        server.createContext("/payment/refund", new PaymentHandler(dbConfig));
 
         // ========== WEB HANDLERS ==========
         server.createContext("/weblogin", new WebLoginRegisterHandler(dbConfig));
